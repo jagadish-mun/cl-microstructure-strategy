@@ -1,0 +1,63 @@
+seed: 42
+paths:
+  data_dir: data
+  reports_dir: reports
+data:
+  source: synthetic        # synthetic | csv | vendor
+  start_date: "2024-01-02"
+  n_days: 60
+  session: ["09:00", "14:30"]
+  timezone: America/New_York
+  start_price: 75.0
+  annual_vol: 0.35
+  eia_events: true
+  eia_time: "10:30"
+  eia_weekday: 2           # Monday=0, so 2 = Wednesday
+sampling:
+  base_bar: 1s
+  decision_interval: 10s
+features:
+  windows: [10, 30, 60, 300]   # seconds
+target:
+  horizon: 60                  # seconds
+  horizons_report: [10, 30, 60, 300]
+preprocess:
+  winsor_quantiles: [0.01, 0.99]
+  corr_filter: 0.9
+  selection: lasso_stability   # none | lasso | lasso_stability
+cv:
+  train_days: 20
+  test_days: 5
+  embargo_seconds: 120
+  holdout_days: 10
+models: [zero, ar1, ols, ridge, lasso]
+strategy:
+  theta_entry_ticks: 1.0
+  theta_exit_ticks: 0.3
+  max_hold_seconds: 300
+  stop_loss_ticks: 8
+  take_profit_ticks: 12
+  sizing: fixed                # fixed | linear | vol_target
+  base_size: 1
+execution:
+  latency_ms: 1000
+  fee_per_contract_rt: 2.50
+  slippage_model: l2_or_sqrt
+penalties:
+  eod_flatten_time: "14:25"
+  eod_penalty_ticks: 1
+  forced_liq_penalty_ticks: 3
+firewalls:
+  enabled: true
+  max_position: 5
+  max_order_size: 3
+  price_band_ticks: 5
+  max_spread_ticks: 2
+  stale_quote_ms: 2000
+  max_orders_per_min: 6
+  vol_breaker_mult: 3.0
+  news_blackout: ["10:28", "10:35"]
+  daily_loss_limit_usd: 1500
+  max_drawdown_usd: 5000
+  loss_streak_n: 5
+  loss_streak_cooldown_min: 15
