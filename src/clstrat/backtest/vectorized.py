@@ -11,9 +11,10 @@ modelled; with firewalls off the two engines agree to the cent (see the parity t
 
 from __future__ import annotations
 
+import copy
 import math
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 
 import numpy as np
@@ -225,6 +226,15 @@ class VectorBacktester:
         entries = int(np.sum((pos != 0) & (np.concatenate([[0], pos[:-1]]) != pos)))
         return {"day": pd.Timestamp(a.day), "net": net} | costs | {
             "gross": net + sum(costs.values()), "entries": entries}  # fmt: skip
+
+    def shuffled(self, rng: np.random.Generator) -> VectorBacktester:
+        """A copy whose predictions (and their percentiles) are permuted within each day."""
+        clone = copy.copy(self)
+        clone.days = []
+        for a in self.days:
+            perm = rng.permutation(len(a.pred))
+            clone.days.append(replace(a, pred=a.pred[perm], pct=a.pct[perm]))
+        return clone
 
     def run(self, cfg: Config) -> pd.DataFrame:
         """Daily net/gross P&L and costs (same columns as ``Engine`` plus ``entries``)."""

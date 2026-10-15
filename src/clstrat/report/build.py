@@ -79,3 +79,71 @@ def plot_equity(daily: pd.DataFrame, equity: pd.Series, path: Path, title: str) 
     dd_ax.set_ylabel("net drawdown ($)")
     dd_ax.set_xlabel("decision time (all test days)")
     return _save(fig, path)
+
+
+def plot_heatmaps(
+    table: pd.DataFrame, rows: str, cols: str, panels: list[tuple[str, str]], path: Path, title: str
+) -> Path:
+    """One annotated heatmap per ``(value_column, label)`` over a two-parameter grid."""
+    fig, axes = plt.subplots(1, len(panels), figsize=(5.2 * len(panels), 4.2))
+    for ax, (value, label) in zip(np.atleast_1d(axes), panels, strict=True):
+        grid = table.pivot(index=rows, columns=cols, values=value)
+        lim = np.nanmax(np.abs(grid.to_numpy())) or 1.0
+        im = ax.imshow(grid.to_numpy(), cmap="RdYlGn", vmin=-lim, vmax=lim, aspect="auto")
+        ax.set_xticks(range(grid.shape[1]), [f"{v:g}" for v in grid.columns])
+        ax.set_yticks(range(grid.shape[0]), [f"{v:g}" for v in grid.index])
+        ax.set_xlabel(cols.split(".")[-1])
+        ax.set_ylabel(rows.split(".")[-1])
+        ax.set_title(label)
+        for (i, j), v in np.ndenumerate(grid.to_numpy()):
+            if np.isfinite(v):
+                ax.text(j, i, f"{v:,.0f}" if abs(v) >= 100 else f"{v:.2f}", ha="center",
+                        va="center", fontsize=7)  # fmt: skip
+        fig.colorbar(im, ax=ax, shrink=0.8)
+    fig.suptitle(title)
+    return _save(fig, path)
+
+
+def plot_cost_sensitivity(curves: dict[str, pd.DataFrame], break_even: float, path: Path) -> Path:
+    """Net and gross P&L as fees and latency rise (chosen strategy, walk-forward days)."""
+    fig, axes = plt.subplots(1, len(curves), figsize=(5.2 * len(curves), 4))
+    for ax, (key, table) in zip(np.atleast_1d(axes), curves.items(), strict=True):
+        x = table[f"execution.{key}"]
+        ax.plot(x, table["net_pnl"], marker="o", lw=2, label="net")
+        ax.plot(x, table["gross_pnl"], marker=".", ls="--", color="tab:grey", label="gross")
+        ax.axhline(0, color="black", lw=0.6)
+        ax.set_xlabel(key)
+        ax.set_ylabel("P&L ($)")
+        ax.legend()
+        if key == "fee_per_contract_rt" and np.isfinite(break_even):
+            ax.axvline(break_even, color="tab:red", ls=":", lw=1.5)
+            ax.set_title(f"break-even round-trip fee ≈ ${break_even:.2f}")
+        else:
+            ax.set_title(f"net P&L vs {key}")
+    return _save(fig, path)
+
+
+def plot_firewall_comparison(results: dict, path: Path) -> Path:
+    """Cumulative daily net P&L with and without firewalls."""
+    fig, ax = plt.subplots(figsize=FIGSIZE)
+    for label, result in results.items():
+        cum = result.daily["net"].cumsum()
+        ax.plot(np.arange(1, len(cum) + 1), cum, lw=2, label=label)
+    ax.axhline(0, color="black", lw=0.6)
+    ax.set_xlabel("trading day")
+    ax.set_ylabel("cumulative net P&L ($)")
+    ax.set_title("Firewalls on vs off (walk-forward test days)")
+    ax.legend()
+    return _save(fig, path)
+
+
+def plot_placebo(placebo_pnl: pd.Series, real: float, p_value: float, path: Path) -> Path:
+    """Histogram of net P&L after shuffling predictions within each day, vs the real run."""
+    fig, ax = plt.subplots(figsize=FIGSIZE)
+    ax.hist(placebo_pnl, bins=30, color="tab:grey", alpha=0.8, label="shuffled predictions")
+    ax.axvline(real, color="tab:blue", lw=2.5, label=f"real predictions (p = {p_value:.3f})")
+    ax.set_xlabel("net P&L over the walk-forward test days ($)")
+    ax.set_ylabel("count")
+    ax.set_title(f"Placebo test: {len(placebo_pnl)} within-day shuffles (firewalls off)")
+    ax.legend()
+    return _save(fig, path)

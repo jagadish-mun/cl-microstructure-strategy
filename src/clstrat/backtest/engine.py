@@ -254,19 +254,22 @@ class Engine:
         )
 
 
+def chosen_model(cfg: Config) -> str:
+    """Model picked by ``train`` on the walk-forward folds."""
+    with open(data_path(cfg, "models", "selection.yaml")) as fh:
+        return yaml.safe_load(fh)["best_model"]
+
+
 def backtest_inputs(
     cfg: Config, model: str | None = None
-) -> tuple[pd.DataFrame, dict[int, np.ndarray] | None, Callable[[date], pd.DataFrame]]:
+) -> tuple[pd.DataFrame, dict[int, np.ndarray], Callable[[date], pd.DataFrame]]:
     """Walk-forward predictions of ``model`` (default: the one chosen by ``train``), the
-    per-fold training-prediction quantiles (percentile mode only) and a 1 s bar loader."""
-    with open(data_path(cfg, "models", "selection.yaml")) as fh:
-        model = model or yaml.safe_load(fh)["best_model"]
+    per-fold training-prediction quantiles (used in percentile mode) and a 1 s bar loader."""
+    model = model or chosen_model(cfg)
     preds = pd.read_parquet(data_path(cfg, "models", "predictions.parquet"))
     preds = preds[["ts", "day", "fold", f"pred_{model}"]].rename(columns={f"pred_{model}": "pred"})
-    quantiles = None
-    if cfg["strategy"]["threshold_mode"] == "percentile":
-        q = pd.read_parquet(data_path(cfg, "models", "train_quantiles.parquet"))
-        quantiles = {fold: row.to_numpy() for (fold, m), row in q.iterrows() if m == model}
+    q = pd.read_parquet(data_path(cfg, "models", "train_quantiles.parquet"))
+    quantiles = {fold: row.to_numpy() for (fold, m), row in q.iterrows() if m == model}
 
     def load_bars(day: date) -> pd.DataFrame:
         return pd.read_parquet(data_path(cfg, "bars", f"{day.isoformat()}.parquet"))

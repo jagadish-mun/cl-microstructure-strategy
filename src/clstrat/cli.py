@@ -24,10 +24,13 @@ from clstrat.models.evaluate import (
     sign_flips,
 )
 from clstrat.report.build import plot_coef_stability, plot_equity, plot_ic_decay
+from clstrat.research.suite import run_suite
 
 app = typer.Typer(add_completion=False, help="CL futures microstructure research pipeline.")
 
 ConfigOpt = typer.Option(None, "--config", "-c", help="YAML config (default: configs/default.yaml)")
+SweepOpt = typer.Option(Path("configs/sweep.yaml"), help="Robustness grids")
+SeedsOpt = typer.Option(True, help="Also rerun the pipeline on independent synthetic seeds")
 
 
 def _synthetic_dir(cfg: Config) -> Path:
@@ -136,6 +139,20 @@ def backtest(config: Path | None = ConfigOpt) -> None:
     plot_equity(result.daily, result.equity, reports_path(cfg, "equity_curve.png"),
                 "Walk-forward test days: cumulative P&L")  # fmt: skip
     typer.echo(pd.Series(stats).round(3).to_string())
+
+
+@app.command()
+def research(
+    config: Path | None = ConfigOpt,
+    sweep: Path = SweepOpt,
+    seeds: bool = SeedsOpt,
+) -> None:
+    """Robustness suite (§8) on the walk-forward days; chooses the holdout strategy."""
+    cfg = load_config(config)
+    with open(sweep) as fh:
+        grids = yaml.safe_load(fh)
+    summary = run_suite(cfg, grids, seeds)
+    typer.echo(yaml.safe_dump(summary, sort_keys=False))
 
 
 if __name__ == "__main__":

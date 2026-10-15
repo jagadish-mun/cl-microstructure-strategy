@@ -1,7 +1,17 @@
-# Parameter grids for robustness sweeps (walk-forward folds only, never the holdout).
-theta_entry_ticks: [0.5, 0.75, 1.0, 1.5, 2.0, 3.0]
-theta_exit_ticks: [0.0, 0.3, 0.6, 1.0]
-fee_per_contract_rt: [0.0, 1.0, 2.5, 4.0, 6.0, 8.0]
-latency_ms: [0, 250, 1000, 2000, 5000]
-eod_penalty_ticks: [0, 1, 2, 4]
-forced_liq_penalty_ticks: [0, 3, 6, 10]
+# Robustness grids (§8). Everything here runs on the walk-forward test days only;
+# the final holdout is never touched by a sweep.
+thresholds:                    # tick-threshold strategy grid (exit must be below entry)
+  theta_entry_ticks: [0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0]
+  theta_exit_ticks: [0.0, 0.3, 0.6, 1.0, 1.5]
+percentiles:                   # percentile-threshold strategy grid
+  pct_entry: [0.90, 0.95, 0.97, 0.99]
+  pct_exit: [0.50, 0.70, 0.80, 0.90]
+selection_min_trades: 100      # configs with fewer trades over the test days are not eligible
+costs:                         # cost sensitivity around the chosen strategy
+  fee_per_contract_rt: [0.0, 1.0, 2.5, 4.0, 6.0, 8.0, 10.0]
+  latency_ms: [0, 250, 1000, 2000, 3000, 5000]
+penalties:                     # liquidation-penalty sensitivity (event engine, firewalls on)
+  eod_penalty_ticks: [0, 1, 2, 4]
+  forced_liq_penalty_ticks: [0, 3, 6, 10]
+placebo_shuffles: 200          # within-day shuffles of the predictions
+seeds: [7, 123, 2024, 31337, 99]   # independent synthetic markets for seed robustness
