@@ -131,6 +131,7 @@ def backtest(config: Path | None = ConfigOpt) -> None:
     stats = summarize(result)
     result.trades.to_csv(reports_path(cfg, "trade_log.csv"), index=False)
     result.daily.to_csv(reports_path(cfg, "daily_pnl.csv"))
+    result.firewall_log.to_csv(reports_path(cfg, "firewall_log.csv"), index=False)
     pd.Series(stats).to_csv(reports_path(cfg, "backtest_summary.csv"), header=["value"])
     plot_equity(result.daily, result.equity, reports_path(cfg, "equity_curve.png"),
                 "Walk-forward test days: cumulative P&L")  # fmt: skip

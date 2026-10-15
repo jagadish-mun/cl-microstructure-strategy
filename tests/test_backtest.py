@@ -3,14 +3,15 @@
 import numpy as np
 import pandas as pd
 import pytest
+from _market import OPEN, make_bars
 
 from clstrat.backtest.engine import Engine
 from clstrat.backtest.execution import Book, ExecutionModel
 from clstrat.backtest.metrics import max_drawdown, sharpe, summarize
 from clstrat.config import load_config
 
-OPEN = pd.Timestamp("2024-01-10 09:00", tz="America/New_York")
 N = 120
+_bars = make_bars
 
 
 def _cfg(**overrides) -> dict:
@@ -23,23 +24,9 @@ def _cfg(**overrides) -> dict:
         "strategy.max_hold_seconds": 10_000,
         "execution.latency_ms": 1000,
         "execution.fee_per_contract_rt": 2.50,
+        "firewalls.enabled": False,
     }
     return load_config(overrides=base | overrides)
-
-
-def _bars(bid: np.ndarray, size: int = 10, depth: list[tuple[int, int]] | None = None):
-    """1 s bars with a 1-tick spread; ``depth`` = [(extra_ticks, size), ...] for L2+."""
-    bars = pd.DataFrame(
-        {"bid_px": bid, "ask_px": bid + 0.01, "bid_sz": size, "ask_sz": size},
-        index=OPEN + pd.to_timedelta(np.arange(1, len(bid) + 1), unit="s"),
-    )
-    for k, (ticks, sz) in enumerate(depth or [], start=2):
-        bars[f"bid_px_{k}"] = bid - ticks * 0.01
-        bars[f"ask_px_{k}"] = bid + 0.01 + ticks * 0.01
-        bars[f"bid_sz_{k}"] = sz
-        bars[f"ask_sz_{k}"] = sz
-    bars["mid"] = (bars["bid_px"] + bars["ask_px"]) / 2
-    return bars
 
 
 def _preds(signals: dict[int, float]) -> pd.DataFrame:

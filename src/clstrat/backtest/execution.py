@@ -32,6 +32,7 @@ class Book:
     bid_sz: np.ndarray
     ask_px: np.ndarray
     ask_sz: np.ndarray
+    quote_age: np.ndarray  # seconds since the last quote update at each bar end
 
     @classmethod
     def from_bars(cls, bars: pd.DataFrame) -> Book:
@@ -48,6 +49,9 @@ class Book:
             bid_sz=levels("bid_sz"),
             ask_px=levels("ask_px"),
             ask_sz=levels("ask_sz"),
+            quote_age=bars["quote_age"].to_numpy(float)
+            if "quote_age" in bars
+            else np.zeros(len(bars)),
         )
 
     def __len__(self) -> int:

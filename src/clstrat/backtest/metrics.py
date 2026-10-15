@@ -61,6 +61,7 @@ def summarize(result: BacktestResult) -> dict[str, float]:
         "worst_day": float(net.min()) if len(net) else math.nan,
     }
     stats |= {f"cost_{k}": float(daily[k].sum()) for k in COST_ITEMS}
+    stats |= {f"fw_{name}": float(n) for name, n in firewall_counts(result).items()}
     return stats
 
 

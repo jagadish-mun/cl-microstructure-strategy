@@ -19,6 +19,7 @@ import pandas as pd
 import yaml
 
 from clstrat.backtest.execution import Book, ExecutionModel, Fill
+from clstrat.backtest.firewall import FirewallSet, FirewallState, Routed
 from clstrat.backtest.signal import Decision, Position, SignalRule, percentile_of
 from clstrat.config import Config, data_path
 from clstrat.contract import CL, SessionCalendar
@@ -73,35 +74,14 @@ class BacktestResult:
     firewall_log: pd.DataFrame  # one row per firewall trigger (empty without firewalls)
 
 
-OrderHook = Callable[["DayState", int, int], tuple[int, str, list[str]]]
-
-
-@dataclass
-class DayState:
-    """What the engine (and the firewalls) know at a decision time."""
-
-    ts: pd.Timestamp
-    bar: int
-    book: Book
-    position: Position
-    day_pnl: float
-    equity: float
-    peak_equity: float
-
-
 class Engine:
-    """Reference event-driven backtester.
+    """Reference event-driven backtester. Firewalls run when ``firewalls.enabled`` is set."""
 
-    ``order_hook(state, proposed_qty, reason)`` may shrink or block an order and returns
-    ``(qty, reason, triggered_firewall_names)``; it is how risk firewalls plug in.
-    """
-
-    def __init__(self, cfg: Config, order_hook: OrderHook | None = None) -> None:
+    def __init__(self, cfg: Config) -> None:
         self.cfg = cfg
         self.cal = SessionCalendar.from_config(cfg)
         self.rule = SignalRule(cfg)
         self.exec = ExecutionModel(cfg)
-        self.hook = order_hook
         p = cfg["penalties"]
         self.eod_time = pd.Timestamp(p["eod_flatten_time"]).time()
         self.eod_pen = p["eod_penalty_ticks"] * CL.tick_value
@@ -118,7 +98,9 @@ class Engine:
         self.cash = 0.0
         self.episode: Episode | None = None
         self.episodes: list[dict] = []
+        self.closed_pnls: list[float] = []
         self.day_costs = dict.fromkeys(COST_ITEMS, 0.0)
+        self.firewalls = FirewallSet(self.cfg) if self.cfg["firewalls"]["enabled"] else None
 
     def _book_fill(
         self, fill: Fill, reason: str, penalty: str | None, firewalls: list[str]
@@ -169,6 +151,7 @@ class Engine:
         if new_qty == 0:
             ep.exit_ts, ep.exit_reason = fill.ts, reason
             self.episodes.append(ep.record())
+            self.closed_pnls.append(self.episodes[-1]["pnl_net"])
             self.episode = None
             self.pos = Position()
 
@@ -222,13 +205,14 @@ class Engine:
                 self.flatten(book, i, "eod", "eod")
                 break
             target, reason = self.rule.target(d, self.pos)
-            qty = target - self.pos.qty
-            fired: list[str] = []
-            if self.hook is not None:
-                state = DayState(d.ts, i, book, self.pos, equity - day_start, equity, peak)
-                qty, reason, fired = self.hook(state, qty, reason)
-            if qty != 0:
-                self.trade(book, i, qty, reason, None, fired)
+            order = Routed(target - self.pos.qty, reason)
+            if self.firewalls is not None:
+                state = FirewallState(
+                    d.ts, i, book, self.pos, equity - day_start, equity, peak, self.closed_pnls
+                )
+                order = self.firewalls.route(state, order.qty, order.reason)
+            if order.qty != 0:
+                self.trade(book, i, order.qty, order.reason, order.penalty, order.firewalls)
             equity_points.append((d.ts, self.mark(book, i)))
         self.flatten(book, len(book) - 1 - self.exec.latency_s, "eod", "eod")
         end = self.mark(book, len(book) - 1)
@@ -266,7 +250,7 @@ class Engine:
             daily=pd.DataFrame(daily).set_index("day"),
             equity=eq,
             trades=trades,
-            firewall_log=pd.DataFrame(columns=["ts", "firewall", "decision", "reason"]),
+            firewall_log=self.firewalls.log_frame() if self.firewalls else FirewallSet.empty_log(),
         )
 
 

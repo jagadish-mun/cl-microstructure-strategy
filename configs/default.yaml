@@ -155,7 +155,10 @@ firewalls:
   stale_quote_ms: 2000
   max_orders_per_min: 6
   vol_breaker_mult: 3.0
+  vol_breaker_short_s: 60      # realized-vol window compared against ...
+  vol_breaker_median_s: 1800   # ... its trailing median over this many seconds
   news_blackout: ["10:28", "10:35"]
+  news_flatten: false          # also flatten open positions at the start of the blackout
   daily_loss_limit_usd: 1500
   max_drawdown_usd: 5000
   loss_streak_n: 5
