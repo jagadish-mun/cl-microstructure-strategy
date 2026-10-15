@@ -104,15 +104,25 @@ target:
   horizon: 60                  # seconds
   horizons_report: [10, 30, 60, 300]
 preprocess:
+  warmup_seconds: 300          # drop the first seconds of each session (longest lookback)
   winsor_quantiles: [0.01, 0.99]
+  winsor_target: true          # clip the training target at the same quantiles (evaluation uses raw)
   corr_filter: 0.9
   selection: lasso_stability   # none | lasso | lasso_stability
+  stability_bootstraps: 50     # day-block subsamples for stability selection
+  stability_sample_frac: 0.5   # share of training days in each subsample
+  stability_threshold: 0.6     # keep features selected in at least this share of subsamples
 cv:
   train_days: 20
   test_days: 5
   embargo_seconds: 120
   holdout_days: 10
 models: [zero, ar1, ols, ridge, lasso]
+model_params:
+  inner_splits: 4              # expanding day-blocked splits inside each training fold (alpha choice)
+  ridge_alphas: [1, 10, 100, 1000, 10000, 100000]
+  lasso_alphas: [0.003, 0.01, 0.03, 0.1, 0.3, 1.0]
+  quantile_grid: 201           # stored quantiles of training-set predictions (percentile thresholds)
 strategy:
   theta_entry_ticks: 1.0
   theta_exit_ticks: 0.3

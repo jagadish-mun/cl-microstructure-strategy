@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pandas as pd
 import typer
 import yaml
 
@@ -12,7 +13,15 @@ from clstrat.data.adapters import make_source
 from clstrat.data.synthetic import generate_dataset
 from clstrat.data.validate import calibration_stats, clean_day, format_calibration, quality_table
 from clstrat.features.pipeline import build_dataset, ic_decay, research_days
-from clstrat.report.build import plot_ic_decay
+from clstrat.models.evaluate import (
+    coefficient_table,
+    fold_metrics,
+    model_comparison,
+    run_walk_forward,
+    save_results,
+    sign_flips,
+)
+from clstrat.report.build import plot_coef_stability, plot_ic_decay
 
 app = typer.Typer(add_completion=False, help="CL futures microstructure research pipeline.")
 
@@ -31,6 +40,11 @@ def dataset_path(cfg: Config) -> Path:
 def bars_dir(cfg: Config) -> Path:
     """Per-day 1 s bars written by ``features`` and read by the backtester."""
     return Path(cfg["paths"]["data_dir"]) / "bars"
+
+
+def models_dir(cfg: Config) -> Path:
+    """Walk-forward predictions and the model choice written by ``train``."""
+    return Path(cfg["paths"]["data_dir"]) / "models"
 
 
 def _reports_dir(cfg: Config) -> Path:
@@ -98,6 +112,28 @@ def features(config: Path | None = ConfigOpt) -> None:
     primary = ic[cfg["target"]["horizon"]]
     typer.echo(f"{len(df)} decision rows, {ic.shape[0]} features -> {path}")
     typer.echo(ic.loc[primary.abs().sort_values(ascending=False).index[:10]].round(3).to_string())
+
+
+@app.command()
+def train(config: Path | None = ConfigOpt) -> None:
+    """Purged walk-forward evaluation of every model and horizon (holdout untouched)."""
+    cfg = load_config(config)
+    result = run_walk_forward(pd.read_parquet(dataset_path(cfg)), cfg)
+    out = _reports_dir(cfg)
+    h = cfg["target"]["horizon"]
+    comparison = model_comparison(result, cfg["models"])
+    comparison.to_csv(out / "model_comparison.csv")
+    fold_metrics(result, h, cfg["models"]).to_csv(out / "fold_metrics.csv")
+    result.selection[h].to_csv(out / "selection_frequency.csv")
+    choice = save_results(result, cfg, models_dir(cfg))
+    for name in (m for m in cfg["models"] if m not in ("zero", "ar1")):
+        coefs = coefficient_table(result, h, name)
+        coefs.join(sign_flips(coefs)).to_csv(out / f"coefficients_{name}.csv")
+    coefs = coefficient_table(result, h, choice["best_model"])
+    title = f"{choice['best_model']} coefficients across folds ({h}s target)"
+    plot_coef_stability(coefs, sign_flips(coefs), out / "coef_stability.png", title)
+    typer.echo(comparison[["oos_r2", "ic_spearman", "hit_rate", "folds_r2_pos"]].round(4))
+    typer.echo(f"best model at {h}s: {choice['best_model']}")
 
 
 if __name__ == "__main__":

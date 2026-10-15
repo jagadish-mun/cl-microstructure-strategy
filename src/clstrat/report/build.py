@@ -36,3 +36,24 @@ def plot_ic_decay(ic: pd.DataFrame, path: Path, primary: int, top_n: int = 12) -
     ax.set_title(f"IC decay: top {top_n} features by |IC| at {primary}s (research days)")
     ax.legend(fontsize=7, ncol=2, loc="best")
     return _save(fig, path)
+
+
+def plot_coef_stability(coefs: pd.DataFrame, flips: pd.Series, path: Path, title: str) -> Path:
+    """Standardised coefficient of each ever-selected feature in every fold.
+
+    Features whose coefficient changes sign across folds are labelled in red."""
+    order = coefs.abs().mean(axis=1).sort_values().index
+    coefs = coefs.loc[order]
+    fig, ax = plt.subplots(figsize=(8, max(3.0, 0.28 * len(coefs) + 1)))
+    for k, fold in enumerate(coefs.columns):
+        ax.scatter(coefs[fold], range(len(coefs)), s=22, label=f"fold {fold}", zorder=3,
+                   color=plt.cm.viridis(k / max(1, len(coefs.columns) - 1)))  # fmt: skip
+    ax.axvline(0, color="grey", lw=0.8)
+    ax.set_yticks(range(len(coefs)), coefs.index, fontsize=7)
+    for label in ax.get_yticklabels():
+        if flips.get(label.get_text(), False):
+            label.set_color("tab:red")
+    ax.set_xlabel("standardised coefficient (ticks per s.d.)")
+    ax.set_title(title)
+    ax.legend(fontsize=7, loc="lower right")
+    return _save(fig, path)
