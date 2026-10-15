@@ -72,7 +72,7 @@ generator:                     # synthetic market simulator (frozen after milest
     levels: 5
     level_growth: 1.4
     deep_noise: 0.4
-    alpha_tilt: 0.1
+    alpha_tilt: 0.01             # deep-book (L2-L5) tilt toward alpha; recalibrated in M4 (was 0.1)
   eia:
     jump_pct: [0.3, 1.0]
     vol_amp: 3.0
@@ -92,6 +92,14 @@ sampling:
   decision_interval: 10s
 features:
   windows: [10, 30, 60, 300]   # seconds
+  ema_pairs: [[10, 60], [30, 300]]   # EMA fast/slow spans (seconds) for the momentum spread
+  vol_ratio_windows: [30, 300]       # short/long realized vol ratio
+  min_stat_window: 30          # skewness and Kyle lambda only on windows at least this long
+  volume_norm_window: 1800     # trailing seconds used to normalise signed volume
+  history_days: 10             # prior days used for time-of-day intensity and vol-regime norms
+  intensity_bucket_min: 5      # time-of-day buckets for the trade-intensity norm
+  regime_window: 1800          # trailing seconds of realized vol for the regime indicator
+  eia_clip_min: 60             # minutes-to-EIA is clipped to +/- this
 target:
   horizon: 60                  # seconds
   horizons_report: [10, 30, 60, 300]

@@ -13,6 +13,8 @@ from scipy.stats import spearmanr
 from clstrat.config import Config
 from clstrat.contract import CL, SessionCalendar
 from clstrat.data.bars import spread_ticks, time_bars
+from clstrat.features.orderflow import book_imbalance, microprice_deviation, trade_imbalance
+from clstrat.features.price import momentum, skew
 
 # ---------------------------------------------------------------------------
 # Data quality
@@ -108,28 +110,29 @@ def _acf(x: np.ndarray, lag: int) -> float:
 
 
 def _probe_design(bars: pd.DataFrame, cfg: Config) -> tuple[np.ndarray, np.ndarray]:
-    """A small, causal linear probe used only to check how predictable the generator is.
+    """A compact, causal linear probe used to check how predictable the generator is.
 
-    Features: trade imbalance and past mid return over each configured window, L1 book
-    imbalance and microprice deviation. Target: forward mid change in ticks over the primary
-    horizon, starting ``latency`` after the decision time.
+    It reuses the production feature functions: trade imbalance, signed volume and past
+    returns over each window, L1 and depth-weighted book imbalance, deep-book skew and
+    microprice deviation. Target: forward mid change in ticks over the primary horizon,
+    starting ``latency`` after the decision time.
     """
-    tick = CL.tick_size
+    windows = cfg["features"]["windows"]
     step = int(pd.Timedelta(cfg["sampling"]["decision_interval"]).total_seconds())
-    lat = int(round(cfg["execution"]["latency_ms"] / 1000))
+    lat = int(np.ceil(cfg["execution"]["latency_ms"] / 1000))
     h = cfg["target"]["horizon"]
+    X = pd.concat(
+        [
+            trade_imbalance(bars, windows),
+            momentum(bars, windows, []),
+            book_imbalance(bars, []),
+            skew(bars, [], 0),
+            microprice_deviation(bars, []),
+        ],
+        axis=1,
+    )
     mid = bars["mid"]
-    cols = {}
-    for w in cfg["features"]["windows"]:
-        vol = (bars["buy_vol"] + bars["sell_vol"]).rolling(w).sum()
-        cols[f"ti_{w}"] = bars["signed_vol"].rolling(w).sum() / vol.where(vol > 0)
-        cols[f"ret_{w}"] = (mid - mid.shift(w)) / tick
-    depth = bars["bid_sz"] + bars["ask_sz"]
-    cols["book_imb"] = (bars["bid_sz"] - bars["ask_sz"]) / depth
-    micro = (bars["ask_px"] * bars["bid_sz"] + bars["bid_px"] * bars["ask_sz"]) / depth
-    cols["micro_dev"] = (micro - mid) / tick
-    X = pd.DataFrame(cols)
-    y = (mid.shift(-(lat + h)) - mid.shift(-lat)) / tick
+    y = (mid.shift(-(lat + h)) - mid.shift(-lat)) / CL.tick_size
     rows = np.arange(len(bars)) % step == step - 1
     keep = rows & X.notna().all(axis=1).to_numpy() & y.notna().to_numpy()
     return X.to_numpy()[keep], y.to_numpy()[keep]
