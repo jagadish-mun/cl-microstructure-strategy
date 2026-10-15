@@ -11,6 +11,8 @@ from clstrat.config import Config, load_config
 from clstrat.data.adapters import make_source
 from clstrat.data.synthetic import generate_dataset
 from clstrat.data.validate import calibration_stats, clean_day, format_calibration, quality_table
+from clstrat.features.pipeline import build_dataset, ic_decay, research_days
+from clstrat.report.build import plot_ic_decay
 
 app = typer.Typer(add_completion=False, help="CL futures microstructure research pipeline.")
 
@@ -19,6 +21,16 @@ ConfigOpt = typer.Option(None, "--config", "-c", help="YAML config (default: con
 
 def _synthetic_dir(cfg: Config) -> Path:
     return Path(cfg["paths"]["data_dir"]) / "synthetic"
+
+
+def dataset_path(cfg: Config) -> Path:
+    """Decision-time feature/target dataset written by ``features``."""
+    return Path(cfg["paths"]["data_dir"]) / "features" / "dataset.parquet"
+
+
+def bars_dir(cfg: Config) -> Path:
+    """Per-day 1 s bars written by ``features`` and read by the backtester."""
+    return Path(cfg["paths"]["data_dir"]) / "bars"
 
 
 def _reports_dir(cfg: Config) -> Path:
@@ -68,6 +80,24 @@ def validate(config: Path | None = ConfigOpt) -> None:
     totals["max_gap_s"] = quality["max_gap_s"].max()
     typer.echo(totals.to_string())
     typer.echo(report)
+
+
+@app.command()
+def features(config: Path | None = ConfigOpt) -> None:
+    """Build bars, features and targets; write the IC decay table and plot (research days)."""
+    cfg = load_config(config)
+    df, summaries = build_dataset(cfg, make_source(cfg), bars_dir(cfg))
+    path = dataset_path(cfg)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    df.to_parquet(path, index=False)
+    out = _reports_dir(cfg)
+    quality_table(summaries).to_csv(out / "data_quality.csv")
+    ic = ic_decay(research_days(df, cfg["cv"]["holdout_days"]), cfg["target"]["horizons_report"])
+    ic.to_csv(out / "ic_decay.csv")
+    plot_ic_decay(ic, out / "ic_decay.png", cfg["target"]["horizon"])
+    primary = ic[cfg["target"]["horizon"]]
+    typer.echo(f"{len(df)} decision rows, {ic.shape[0]} features -> {path}")
+    typer.echo(ic.loc[primary.abs().sort_values(ascending=False).index[:10]].round(3).to_string())
 
 
 if __name__ == "__main__":

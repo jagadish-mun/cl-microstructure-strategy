@@ -6,7 +6,7 @@ CLI    := $(PY) -m clstrat.cli
 
 export PYTHONPATH := src
 
-.PHONY: setup data lint test all
+.PHONY: setup data features lint test all
 
 setup: $(VENV)/.installed
 $(VENV)/.installed: pyproject.toml
@@ -20,6 +20,9 @@ $(VENV)/.installed: pyproject.toml
 data: setup
 	$(CLI) generate
 	$(CLI) validate
+
+features: setup
+	$(CLI) features
 
 lint: setup
 	$(BIN)/ruff check .

@@ -26,24 +26,42 @@ def _bin(ts: pd.Series, open_ts: pd.Timestamp, n_sec: int) -> np.ndarray:
     return np.where((b >= 0) & (b < n_sec), b, -1)
 
 
+def ofi_events(q: pd.DataFrame) -> np.ndarray:
+    """Cont-Kukanov-Stoikov (2014) order-flow contribution of each L1 quote update.
+
+    ``e_n = 1{Pb_n >= Pb_n-1} qb_n - 1{Pb_n <= Pb_n-1} qb_n-1
+    - 1{Pa_n <= Pa_n-1} qa_n + 1{Pa_n >= Pa_n-1} qa_n-1``; the first update contributes 0.
+    """
+    bp, bs = q["bid_px"].to_numpy(), q["bid_sz"].to_numpy(float)
+    ap, as_ = q["ask_px"].to_numpy(), q["ask_sz"].to_numpy(float)
+    e = np.zeros(len(q))
+    if len(q) > 1:
+        pbp, pbs, pap, pas = bp[:-1], bs[:-1], ap[:-1], as_[:-1]
+        b, a, cb, ca = bp[1:], ap[1:], bs[1:], as_[1:]
+        e[1:] = (b >= pbp) * cb - (b <= pbp) * pbs - (a <= pap) * ca + (a >= pap) * pas
+    return e
+
+
 def time_bars(
     quotes: pd.DataFrame, trades: pd.DataFrame, open_ts: pd.Timestamp, n_sec: int
 ) -> pd.DataFrame:
     """Build 1 s bars for one session.
 
     Columns: L1/L2+ book as of bar end, ``mid``, ``mid_high``/``mid_low`` over the bar,
-    ``buy_vol``, ``sell_vol``, ``signed_vol``, ``n_trades``, ``vwap`` (NaN without trades),
-    ``quote_age`` (seconds since the last quote update at bar end).
+    ``ofi`` (summed CKS order-flow imbalance of quote updates in the bar), ``volume``,
+    ``buy_vol``, ``sell_vol``, ``signed_vol``, ``n_trades``, ``notional``, ``vwap`` (NaN
+    without trades) and ``quote_age`` (seconds since the last quote update at bar end).
     """
     idx = pd.RangeIndex(n_sec)
     q = quotes.assign(_b=_bin(quotes["ts"], open_ts, n_sec)).query("_b >= 0")
-    q = q.assign(mid=(q["bid_px"] + q["ask_px"]) / 2)
+    q = q.assign(mid=(q["bid_px"] + q["ask_px"]) / 2, ofi=ofi_events(q))
     grouped = q.groupby("_b")
     book = grouped[book_columns(quotes) + ["mid"]].last().reindex(idx).ffill()
     last_quote = grouped["ts"].last().reindex(idx).ffill()
     prev_mid = book["mid"].shift(1)
     high = np.fmax(grouped["mid"].max().reindex(idx), prev_mid).fillna(book["mid"])
     low = np.fmin(grouped["mid"].min().reindex(idx), prev_mid).fillna(book["mid"])
+    ofi = grouped["ofi"].sum().reindex(idx, fill_value=0.0)
 
     t = trades.assign(_b=_bin(trades["ts"], open_ts, n_sec)).query("_b >= 0")
     t = t.assign(
@@ -56,20 +74,24 @@ def time_bars(
         {
             "buy_vol": tg["buy"].sum(),
             "sell_vol": tg["sell"].sum(),
+            "volume": tg["size"].sum(),
             "n_trades": tg["size"].size(),
             "notional": tg["notional"].sum(),
         }
     ).reindex(idx, fill_value=0)
-    volume = flow["buy_vol"] + flow["sell_vol"]
+    volume = flow["volume"].astype(float)
 
     ends = open_ts + pd.to_timedelta(idx + 1, unit="s")
     bars = book.assign(
         mid_high=high,
         mid_low=low,
+        ofi=ofi,
+        volume=volume,
         buy_vol=flow["buy_vol"].astype(float),
         sell_vol=flow["sell_vol"].astype(float),
         signed_vol=(flow["buy_vol"] - flow["sell_vol"]).astype(float),
         n_trades=flow["n_trades"].astype(float),
+        notional=flow["notional"].astype(float),
         vwap=(flow["notional"] / volume.where(volume > 0)),
         quote_age=(ends - pd.DatetimeIndex(last_quote)).total_seconds(),
     )

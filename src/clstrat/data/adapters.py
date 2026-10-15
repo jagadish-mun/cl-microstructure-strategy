@@ -93,9 +93,13 @@ def lee_ready(trades: pd.DataFrame, quotes: pd.DataFrame, lag_ms: float = 0) -> 
     trade_ts = trades["ts"].dt.as_unit("ns")
     probe = trades[["ts"]].assign(_t=trade_ts - pd.Timedelta(milliseconds=lag_ms))
     probe = probe.reset_index().sort_values("_t")
-    matched = pd.merge_asof(
-        probe, q, left_on="_t", right_on="ts", allow_exact_matches=False, suffixes=("", "_q")
-    ).set_index("index").sort_index()
+    matched = (
+        pd.merge_asof(
+            probe, q, left_on="_t", right_on="ts", allow_exact_matches=False, suffixes=("", "_q")
+        )
+        .set_index("index")
+        .sort_index()
+    )
     mid = ((matched["bid_px"] + matched["ask_px"]) / 2).to_numpy()
     px = trades["price"].to_numpy()
     side = np.sign(px - mid)
