@@ -1,4 +1,4 @@
-PYTHON ?= python3.11
+PYTHON ?= python3
 VENV   ?= .venv
 BIN    := $(VENV)/bin
 PY     := $(BIN)/python
@@ -8,12 +8,14 @@ export PYTHONPATH := src
 
 .PHONY: setup data lint test all
 
-setup: $(BIN)/activate
-$(BIN)/activate: pyproject.toml
-	$(PYTHON) -m venv $(VENV)
-	$(BIN)/pip install -q --upgrade pip
-	$(BIN)/pip install -q -e ".[dev]"
-	touch $(BIN)/activate
+setup: $(VENV)/.installed
+$(VENV)/.installed: pyproject.toml
+	@if command -v uv >/dev/null 2>&1; then \
+		uv venv -q --allow-existing --python 3.11 $(VENV) && uv pip install -q --python $(PY) -e ".[dev]"; \
+	else \
+		$(PYTHON) -m venv $(VENV) && $(PY) -m pip install -q -e ".[dev]"; \
+	fi
+	touch $@
 
 data: setup
 	$(CLI) generate
