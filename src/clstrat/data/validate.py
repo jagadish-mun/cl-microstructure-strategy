@@ -159,7 +159,11 @@ def _probe_fit(designs: list[tuple[np.ndarray, np.ndarray]], train_frac: float) 
 def calibration_stats(
     sessions: Iterable[tuple[date, pd.DataFrame, pd.DataFrame]], cfg: Config
 ) -> dict[str, float]:
-    """Calibration statistics (§2.6) over a sequence of ``(day, quotes, trades)``."""
+    """Calibration statistics (§2.6) over a sequence of ``(day, quotes, trades)``.
+
+    The predictability probe is fitted and scored on research days only; the final
+    ``cv.holdout_days`` days are excluded.
+    """
     cal = SessionCalendar.from_config(cfg)
     c = cfg["calibration"]
     n_sec = cal.session_seconds()
@@ -185,7 +189,8 @@ def calibration_stats(
         "mid_ret_1s_acf1": float(np.nanmean(ret1_acf)),
     }
     stats |= {f"sign_acf_{lag}": float(np.nanmean(v)) for lag, v in sign_acf.items()}
-    return stats | _probe_fit(designs, c["probe_train_frac"])
+    research = designs[: max(2, len(designs) - cfg["cv"]["holdout_days"])]  # never the holdout
+    return stats | _probe_fit(research, c["probe_train_frac"])
 
 
 CALIBRATION_TARGETS: dict[str, tuple[float, float]] = {

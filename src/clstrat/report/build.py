@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 import matplotlib
@@ -10,6 +11,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
+import yaml  # noqa: E402
 
 FIGSIZE = (8, 4.5)
 
@@ -147,3 +149,117 @@ def plot_placebo(placebo_pnl: pd.Series, real: float, p_value: float, path: Path
     ax.set_title(f"Placebo test: {len(placebo_pnl)} within-day shuffles (firewalls off)")
     ax.legend()
     return _save(fig, path)
+
+
+# ---------------------------------------------------------------------------
+# Markdown report
+# ---------------------------------------------------------------------------
+
+SAMPLE_FILES = (
+    "report.md", "ic_decay.png", "coef_stability.png", "strategy_equity.png",
+    "threshold_heatmap.png", "percentile_heatmap.png", "cost_sensitivity.png",
+    "firewalls_on_off.png", "penalty_sensitivity.png", "placebo.png", "holdout_equity.png",
+)  # fmt: skip
+
+
+def md_table(df: pd.DataFrame, digits: int = 3) -> str:
+    """Render a DataFrame as a GitHub-flavoured markdown table."""
+    df = df.reset_index() if df.index.name or isinstance(df.index, pd.MultiIndex) else df
+
+    def fmt(v) -> str:
+        if isinstance(v, float | np.floating):
+            return f"{v:,.{digits}f}" if abs(v) < 1000 else f"{v:,.0f}"
+        return str(v)
+
+    head = "| " + " | ".join(map(str, df.columns)) + " |"
+    rule = "|" + "|".join("---" for _ in df.columns) + "|"
+    body = ["| " + " | ".join(fmt(v) for v in row) + " |" for row in df.itertuples(index=False)]
+    return "\n".join([head, rule, *body])
+
+
+def _money(stats: dict, keys: list[str]) -> pd.DataFrame:
+    return pd.DataFrame({"metric": keys, "value": [stats[k] for k in keys]})
+
+
+HEADLINE = ["net_pnl", "net_sharpe", "max_drawdown", "worst_day", "trades", "hit_rate",
+            "profit_factor", "gross_pnl", "cost_spread_cost", "cost_fees", "cost_slippage",
+            "cost_eod_penalty", "cost_forced_penalty"]  # fmt: skip
+
+
+def report_markdown(reports: Path, models: Path, horizon: int, threshold: float) -> str:
+    """Assemble the research report from the files written by the pipeline commands."""
+    research = yaml.safe_load((reports / "research_summary.yaml").read_text())
+    holdout = yaml.safe_load((models / "holdout.yaml").read_text())
+    strategy = yaml.safe_load((models / "strategy.yaml").read_text())
+    selection = yaml.safe_load((models / "selection.yaml").read_text())
+    comparison = pd.read_csv(reports / "model_comparison.csv")
+    comparison = comparison[["horizon", "model", "oos_r2", "ic_spearman", "hit_rate",
+                             "folds_r2_pos"]]  # fmt: skip
+    freq = pd.read_csv(reports / "selection_frequency.csv", index_col=0)
+    kept = pd.DataFrame(
+        {"fold": freq.columns,
+         "selected features": [", ".join(freq.index[freq[c] >= threshold]) for c in freq]}
+    )  # fmt: skip
+    coefs = pd.read_csv(reports / f"coefficients_{selection['best_model']}.csv", index_col=0)
+    flips = list(coefs.index[coefs["sign_flip"]])
+    ic = pd.read_csv(reports / "ic_decay.csv", index_col=0)
+    top_ic = ic.reindex(ic[str(horizon)].abs().sort_values(ascending=False).index).head(15)
+    wf = pd.read_csv(reports / "strategy_summary.csv", index_col=0)["value"].to_dict()
+    hb = holdout["backtest"]
+    dsr = research["deflated_sharpe"]
+    sections = [
+        "# CL microstructure strategy: research report",
+        "All data is **simulated** (see the README for why). Net-of-cost numbers come first. "
+        "The final holdout was run once, after every choice below was fixed.",
+        "## 1. Data calibration", "```\n" + (reports / "calibration.txt").read_text() + "```",
+        "## 2. Features: strongest Spearman IC at the primary horizon",
+        md_table(top_ic.rename_axis("feature"), 3), "![IC decay](ic_decay.png)",
+        "## 3. Models (purged walk-forward, research days only)", md_table(comparison, 4),
+        f"Chosen model: **{selection['best_model']}** (best pooled OOS R² at {horizon}s).",
+        "![coefficient stability](coef_stability.png)",
+        f"Sign flips across folds: {', '.join(flips) if flips else 'none'}.",
+        "### Selected features per fold", md_table(kept),
+        "## 4. Strategy on the walk-forward test days",
+        f"Chosen configuration (from {strategy['configs_tried']} tried): "
+        f"`{strategy['overrides']}`, firewalls on.",
+        md_table(_money(wf, HEADLINE), 2), "![equity](strategy_equity.png)",
+        "### Threshold sweeps", "![ticks](threshold_heatmap.png)", "![pct](percentile_heatmap.png)",
+        "### Cost sensitivity",
+        f"Break-even round-trip fee: **${research['break_even_fee_rt']:.2f}** per contract "
+        "(assumed: $2.50).", "![costs](cost_sensitivity.png)",
+        "### Firewalls on vs off",
+        md_table(pd.read_csv(reports / "firewalls_on_off.csv", index_col=0).rename_axis("run"), 1),
+        "![firewalls](firewalls_on_off.png)",
+        "### Liquidation penalties",
+        md_table(pd.read_csv(reports / "penalty_sensitivity.csv"), 2),
+        "### Placebo",
+        f"Real net P&L ${research['placebo']['real_net_pnl']:,.0f} vs shuffled mean "
+        f"${research['placebo']['shuffle_mean']:,.0f}; p = {research['placebo']['p_value']:.3f}.",
+        "![placebo](placebo.png)",
+        "### Independent synthetic markets (frozen pipeline)",
+        md_table(pd.read_csv(reports / "seed_robustness.csv"), 4),
+        "### Regimes",
+        md_table(pd.read_csv(reports / "regime_table.csv").set_index(["split", "group"]), 2),
+        "### Selection bias",
+        f"Configurations tried: {dsr['configs_tried']}. Annualised Sharpe "
+        f"{dsr['sharpe_annual']:.2f}; expected best Sharpe under no skill "
+        f"{dsr['expected_max_sharpe_annual_under_null']:.2f}. Probabilistic Sharpe vs 0: "
+        f"{dsr['psr_vs_zero']:.3f}. **Deflated Sharpe: {dsr['deflated_sharpe']:.3f}.**",
+        "## 5. Final holdout (run once)",
+        f"Model refitted on {holdout['train_days'][0]} to {holdout['train_days'][1]}; "
+        f"holdout {holdout['holdout_days'][0]} to {holdout['holdout_days'][1]}. "
+        f"Forecast OOS R² {holdout['forecast']['oos_r2']:.4f}, Spearman IC "
+        f"{holdout['forecast']['ic_spearman']:.3f}.",
+        md_table(_money(hb, HEADLINE), 2), "![holdout](holdout_equity.png)",
+    ]
+    return "\n\n".join(sections) + "\n"
+
+
+def build_report(reports: Path, models: Path, horizon: int, threshold: float, sample: Path) -> Path:
+    """Write ``report.md`` and copy it with its figures to ``sample`` (committed to git)."""
+    path = reports / "report.md"
+    path.write_text(report_markdown(reports, models, horizon, threshold))
+    sample.mkdir(parents=True, exist_ok=True)
+    for name in SAMPLE_FILES:
+        shutil.copy2(reports / name, sample / name)
+    return path

@@ -6,7 +6,7 @@ CLI    := $(PY) -m clstrat.cli
 
 export PYTHONPATH := src
 
-.PHONY: setup data features train backtest research lint test all
+.PHONY: setup data features train backtest research holdout report lint test all clean
 
 setup: $(VENV)/.installed
 $(VENV)/.installed: pyproject.toml
@@ -33,10 +33,21 @@ backtest: setup
 research: setup
 	$(CLI) research
 
+holdout: setup
+	$(CLI) holdout
+
+report: setup
+	$(CLI) report
+
 lint: setup
 	$(BIN)/ruff check .
 
 test: setup
 	$(BIN)/pytest
 
-all: lint test
+# Full pipeline from an empty data/ directory, then lint and tests.
+all: data features train backtest research holdout report lint test
+
+# Remove generated data and reports (keeps the committed sample report).
+clean:
+	rm -rf data reports/*.csv reports/*.png reports/*.txt reports/*.md reports/*.yaml

@@ -128,4 +128,6 @@ def run_suite(cfg: Config, sweep: Config, seeds: bool = True) -> dict:
         table.to_csv(reports_path(cfg, "seed_robustness.csv"), index=False)
         spread = table.drop(columns="seed").describe().loc[["mean", "min", "max"]]
         summary["seeds"] = spread.to_dict()
+    with open(reports_path(cfg, "research_summary.yaml"), "w") as fh:
+        yaml.safe_dump(summary, fh, sort_keys=False)
     return summary

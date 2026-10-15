@@ -23,7 +23,8 @@ from clstrat.models.evaluate import (
     save_results,
     sign_flips,
 )
-from clstrat.report.build import plot_coef_stability, plot_equity, plot_ic_decay
+from clstrat.report.build import build_report, plot_coef_stability, plot_equity, plot_ic_decay
+from clstrat.research.holdout import run_holdout
 from clstrat.research.suite import run_suite
 
 app = typer.Typer(add_completion=False, help="CL futures microstructure research pipeline.")
@@ -153,6 +154,23 @@ def research(
         grids = yaml.safe_load(fh)
     summary = run_suite(cfg, grids, seeds)
     typer.echo(yaml.safe_dump(summary, sort_keys=False))
+
+
+@app.command()
+def holdout(config: Path | None = ConfigOpt) -> None:
+    """Run the chosen model and strategy on the final holdout days, exactly once."""
+    typer.echo(yaml.safe_dump(run_holdout(load_config(config)), sort_keys=False))
+
+
+@app.command()
+def report(config: Path | None = ConfigOpt) -> None:
+    """Assemble reports/report.md and refresh the committed sample in reports/sample/."""
+    cfg = load_config(config)
+    path = build_report(
+        reports_path(cfg), data_path(cfg, "models"), cfg["target"]["horizon"],
+        cfg["preprocess"]["stability_threshold"], reports_path(cfg, "sample"),
+    )  # fmt: skip
+    typer.echo(f"wrote {path} and {reports_path(cfg, 'sample')}")
 
 
 if __name__ == "__main__":
