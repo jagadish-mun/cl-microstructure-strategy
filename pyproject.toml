@@ -20,6 +20,7 @@ dependencies = [
     "pyyaml>=6.0",
     "pyarrow>=14.0",
     "typer>=0.12",
+    "numba>=0.59",
 ]
 
 [project.optional-dependencies]
@@ -41,4 +42,5 @@ ignore = ["N803", "N806"]  # allow X, y, θ-style math names in modelling code
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["src"]
 addopts = "-q"

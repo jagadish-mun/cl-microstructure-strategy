@@ -13,6 +13,72 @@ data:
   eia_events: true
   eia_time: "10:30"
   eia_weekday: 2           # Monday=0, so 2 = Wednesday
+generator:                     # synthetic market simulator (frozen after milestone 2 calibration)
+  fine_dt: 0.25                # seconds; grid for the latent efficient price
+  quote_interval: 1.0          # seconds between scheduled book refreshes (plus one after each trade)
+  diffusion_scale: 0.72        # share of target vol carried by diffusion (trade impact adds the rest)
+  regime:                      # daily two-state Markov chain: [calm, volatile]
+    vol_mult: [0.8, 1.5]
+    stay_prob: [0.9, 0.8]
+  intraday:                    # U-shaped volatility / activity profile
+    open_amp: 1.0
+    open_tau_min: 30
+    close_amp: 0.6
+    close_tau_min: 20
+  stoch_vol:                   # mean-reverting log-vol on a 1-minute grid
+    phi_per_min: 0.98
+    sigma: 0.1
+  alpha:                       # latent short-term pressure: the planted, decaying signal
+    half_life_s: 45
+    drift_strength: 0.045      # per-second drift = drift_strength * sigma * alpha
+    flow_loading: 0.2          # P(buy) = sigmoid(2 * flow_loading * alpha)
+  hawkes:
+    mean_rate: 4.0             # trades per second, session average
+    branching: 0.6
+    decay_s: 3.0
+  metaorders:                  # Lillo-Mike-Farmer sign model
+    n_active: 4
+    length_tail: 1.5           # P(L >= l) ~ l^-tail
+    max_length: 2000
+    noise_frac: 0.3            # share of trades with an independent sign
+  sizes:
+    tail: 1.6                  # Pareto tail of child-trade size in lots
+    max_lots: 100
+  impact:                      # ticks per sqrt(lot)
+    permanent: 0.03
+    transient: 0.12
+    transient_decay_s: 30
+  spread:
+    p_wide_base: 0.08
+    vol_exponent: 2.0
+    p_wide_max: 0.6
+    p_three_given_wide: 0.25
+    refresh_prob: 0.2
+    eia_window_s: [-60, 300]
+    eia_p_wide: 0.7
+  depth:
+    mean_lots: 15
+    log_sigma: 0.5
+    ar_phi: 0.95
+    min_frac: 0.15
+    levels: 5
+    level_growth: 1.4
+    deep_noise: 0.4
+    alpha_tilt: 0.1
+  eia:
+    jump_pct: [0.3, 1.0]
+    vol_amp: 3.0
+    vol_decay_s: 180
+    rate_amp: 4.0
+    rate_decay_s: 120
+validation:
+  spike_ticks: 150             # flag prices this far from the rolling median (EIA jumps reach ~75)
+  spike_window: 101            # rows in the rolling median
+  max_gap_s: 30                # report gaps longer than this
+calibration:
+  probe_train_frac: 0.7        # share of days used to fit the probe regression
+  acf_sign_lags: [1, 10, 100, 1000]
+  rv_bar_s: 300                # bar length for realized-vol estimate
 sampling:
   base_bar: 1s
   decision_interval: 10s
