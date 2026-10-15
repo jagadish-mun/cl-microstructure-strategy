@@ -124,17 +124,24 @@ model_params:
   lasso_alphas: [0.003, 0.01, 0.03, 0.1, 0.3, 1.0]
   quantile_grid: 201           # stored quantiles of training-set predictions (percentile thresholds)
 strategy:
+  threshold_mode: ticks        # ticks | percentile (of the fold's training predictions)
   theta_entry_ticks: 1.0
   theta_exit_ticks: 0.3
+  pct_entry: 0.97              # percentile mode: long above, short below 1 - pct_entry
+  pct_exit: 0.80               # percentile mode: hold a long while above, a short while below 1 - pct_exit
+  require_edge: true           # also require |y_hat| > live spread + fees (round-trip cost estimate)
   max_hold_seconds: 300
   stop_loss_ticks: 8
   take_profit_ticks: 12
   sizing: fixed                # fixed | linear | vol_target
   base_size: 1
+  max_size: 3                  # cap for linear and vol_target sizing
+  vol_target_ticks: 10         # vol_target: size * (60 s realized vol in ticks) ~ this
 execution:
   latency_ms: 1000
   fee_per_contract_rt: 2.50
   slippage_model: l2_or_sqrt
+  sqrt_impact_coef: 0.5        # ticks of extra slippage per sqrt(excess lots / L1 size) without L2
 penalties:
   eod_flatten_time: "14:25"
   eod_penalty_ticks: 1

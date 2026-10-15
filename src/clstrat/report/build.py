@@ -8,6 +8,7 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
+import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
 FIGSIZE = (8, 4.5)
@@ -56,4 +57,25 @@ def plot_coef_stability(coefs: pd.DataFrame, flips: pd.Series, path: Path, title
     ax.set_xlabel("standardised coefficient (ticks per s.d.)")
     ax.set_title(title)
     ax.legend(fontsize=7, loc="lower right")
+    return _save(fig, path)
+
+
+def plot_equity(daily: pd.DataFrame, equity: pd.Series, path: Path, title: str) -> Path:
+    """Cumulative net P&L (gross overlaid) by day, and the net drawdown from intraday marks."""
+    fig, (ax, dd_ax) = plt.subplots(
+        2, 1, figsize=(8, 5.5), sharex=False, gridspec_kw={"height_ratios": [3, 1.2]}
+    )
+    x = np.arange(1, len(daily) + 1)
+    ax.plot(x, daily["gross"].cumsum(), ls="--", color="tab:grey", label="gross (before costs)")
+    ax.plot(x, daily["net"].cumsum(), color="tab:blue", lw=2, label="net (after all costs)")
+    ax.axhline(0, color="black", lw=0.6)
+    ax.set_ylabel("cumulative P&L ($)")
+    ax.set_xlabel("trading day")
+    ax.set_title(title)
+    ax.legend(loc="upper left")
+    curve = np.concatenate([[0.0], equity.to_numpy()])
+    drawdown = curve - np.maximum.accumulate(curve)
+    dd_ax.fill_between(np.arange(len(curve)), drawdown, color="tab:red", alpha=0.5)
+    dd_ax.set_ylabel("net drawdown ($)")
+    dd_ax.set_xlabel("decision time (all test days)")
     return _save(fig, path)

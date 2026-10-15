@@ -8,7 +8,9 @@ import pandas as pd
 import typer
 import yaml
 
-from clstrat.config import Config, load_config
+from clstrat.backtest.engine import Engine, backtest_inputs
+from clstrat.backtest.metrics import summarize
+from clstrat.config import Config, data_path, load_config, reports_path
 from clstrat.data.adapters import make_source
 from clstrat.data.synthetic import generate_dataset
 from clstrat.data.validate import calibration_stats, clean_day, format_calibration, quality_table
@@ -21,7 +23,7 @@ from clstrat.models.evaluate import (
     save_results,
     sign_flips,
 )
-from clstrat.report.build import plot_coef_stability, plot_ic_decay
+from clstrat.report.build import plot_coef_stability, plot_equity, plot_ic_decay
 
 app = typer.Typer(add_completion=False, help="CL futures microstructure research pipeline.")
 
@@ -29,28 +31,12 @@ ConfigOpt = typer.Option(None, "--config", "-c", help="YAML config (default: con
 
 
 def _synthetic_dir(cfg: Config) -> Path:
-    return Path(cfg["paths"]["data_dir"]) / "synthetic"
+    return data_path(cfg, "synthetic")
 
 
 def dataset_path(cfg: Config) -> Path:
     """Decision-time feature/target dataset written by ``features``."""
-    return Path(cfg["paths"]["data_dir"]) / "features" / "dataset.parquet"
-
-
-def bars_dir(cfg: Config) -> Path:
-    """Per-day 1 s bars written by ``features`` and read by the backtester."""
-    return Path(cfg["paths"]["data_dir"]) / "bars"
-
-
-def models_dir(cfg: Config) -> Path:
-    """Walk-forward predictions and the model choice written by ``train``."""
-    return Path(cfg["paths"]["data_dir"]) / "models"
-
-
-def _reports_dir(cfg: Config) -> Path:
-    path = Path(cfg["paths"]["reports_dir"])
-    path.mkdir(parents=True, exist_ok=True)
-    return path
+    return data_path(cfg, "features", "dataset.parquet")
 
 
 @app.callback()
@@ -87,7 +73,7 @@ def validate(config: Path | None = ConfigOpt) -> None:
 
     report = format_calibration(calibration_stats(sessions(), cfg), cfg)
     quality = quality_table(summaries)
-    out = _reports_dir(cfg)
+    out = reports_path(cfg)
     quality.to_csv(out / "data_quality.csv")
     (out / "calibration.txt").write_text(report + "\n")
     totals = quality.sum(numeric_only=True)
@@ -100,11 +86,11 @@ def validate(config: Path | None = ConfigOpt) -> None:
 def features(config: Path | None = ConfigOpt) -> None:
     """Build bars, features and targets; write the IC decay table and plot (research days)."""
     cfg = load_config(config)
-    df, summaries = build_dataset(cfg, make_source(cfg), bars_dir(cfg))
+    df, summaries = build_dataset(cfg, make_source(cfg), data_path(cfg, "bars"))
     path = dataset_path(cfg)
     path.parent.mkdir(parents=True, exist_ok=True)
     df.to_parquet(path, index=False)
-    out = _reports_dir(cfg)
+    out = reports_path(cfg)
     quality_table(summaries).to_csv(out / "data_quality.csv")
     ic = ic_decay(research_days(df, cfg["cv"]["holdout_days"]), cfg["target"]["horizons_report"])
     ic.to_csv(out / "ic_decay.csv")
@@ -119,13 +105,13 @@ def train(config: Path | None = ConfigOpt) -> None:
     """Purged walk-forward evaluation of every model and horizon (holdout untouched)."""
     cfg = load_config(config)
     result = run_walk_forward(pd.read_parquet(dataset_path(cfg)), cfg)
-    out = _reports_dir(cfg)
+    out = reports_path(cfg)
     h = cfg["target"]["horizon"]
     comparison = model_comparison(result, cfg["models"])
     comparison.to_csv(out / "model_comparison.csv")
     fold_metrics(result, h, cfg["models"]).to_csv(out / "fold_metrics.csv")
     result.selection[h].to_csv(out / "selection_frequency.csv")
-    choice = save_results(result, cfg, models_dir(cfg))
+    choice = save_results(result, cfg, data_path(cfg, "models"))
     for name in (m for m in cfg["models"] if m not in ("zero", "ar1")):
         coefs = coefficient_table(result, h, name)
         coefs.join(sign_flips(coefs)).to_csv(out / f"coefficients_{name}.csv")
@@ -134,6 +120,21 @@ def train(config: Path | None = ConfigOpt) -> None:
     plot_coef_stability(coefs, sign_flips(coefs), out / "coef_stability.png", title)
     typer.echo(comparison[["oos_r2", "ic_spearman", "hit_rate", "folds_r2_pos"]].round(4))
     typer.echo(f"best model at {h}s: {choice['best_model']}")
+
+
+@app.command()
+def backtest(config: Path | None = ConfigOpt) -> None:
+    """Event-driven backtest of the chosen model on the walk-forward test days."""
+    cfg = load_config(config)
+    preds, quantiles, load_bars = backtest_inputs(cfg)
+    result = Engine(cfg).run(preds, load_bars, quantiles)
+    stats = summarize(result)
+    result.trades.to_csv(reports_path(cfg, "trade_log.csv"), index=False)
+    result.daily.to_csv(reports_path(cfg, "daily_pnl.csv"))
+    pd.Series(stats).to_csv(reports_path(cfg, "backtest_summary.csv"), header=["value"])
+    plot_equity(result.daily, result.equity, reports_path(cfg, "equity_curve.png"),
+                "Walk-forward test days: cumulative P&L")  # fmt: skip
+    typer.echo(pd.Series(stats).round(3).to_string())
 
 
 if __name__ == "__main__":

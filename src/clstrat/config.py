@@ -44,3 +44,15 @@ def with_overrides(cfg: Config, overrides: dict[str, Any]) -> Config:
     for key, value in overrides.items():
         set_dotted(out, key, value)
     return out
+
+
+def data_path(cfg: Config, *parts: str) -> Path:
+    """Path under the configured data directory."""
+    return Path(cfg["paths"]["data_dir"]).joinpath(*parts)
+
+
+def reports_path(cfg: Config, *parts: str) -> Path:
+    """Path under the configured reports directory (created if missing)."""
+    root = Path(cfg["paths"]["reports_dir"])
+    root.mkdir(parents=True, exist_ok=True)
+    return root.joinpath(*parts)
