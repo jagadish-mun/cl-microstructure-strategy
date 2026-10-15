@@ -13,6 +13,14 @@ data:
   eia_events: true
   eia_time: "10:30"
   eia_weekday: 2           # Monday=0, so 2 = Wednesday
+  csv:                     # generic CSV/parquet files: <root>/{quotes,trades}/YYYY-MM-DD.(csv|csv.gz|parquet)
+    root: data/csv
+    timezone: America/New_York   # used when file timestamps are naive
+    columns: {}                  # optional {file_column: schema_column} renames
+  vendor:                  # locally downloaded vendor MBP-1 / trades files (see adapters.VendorFileAdapter)
+    root: data/vendor
+    api_key_env: DATA_VENDOR_API_KEY   # read from the environment if a download client is added
+  lee_ready_lag_ms: 0      # quote lag for Lee-Ready when the aggressor side is missing
 generator:                     # synthetic market simulator (frozen after milestone 2 calibration)
   fine_dt: 0.25                # seconds; grid for the latent efficient price
   quote_interval: 1.0          # seconds between scheduled book refreshes (plus one after each trade)

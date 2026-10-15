@@ -8,7 +8,7 @@ import typer
 import yaml
 
 from clstrat.config import Config, load_config
-from clstrat.data.adapters import ParquetStore
+from clstrat.data.adapters import make_source
 from clstrat.data.synthetic import generate_dataset
 from clstrat.data.validate import calibration_stats, clean_day, format_calibration, quality_table
 
@@ -50,7 +50,7 @@ def generate(config: Path | None = ConfigOpt) -> None:
 def validate(config: Path | None = ConfigOpt) -> None:
     """Run data-quality checks and print the calibration report."""
     cfg = load_config(config)
-    store = ParquetStore(_synthetic_dir(cfg))
+    store = make_source(cfg)
     summaries = []
 
     def sessions():
